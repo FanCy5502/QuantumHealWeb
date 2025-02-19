@@ -6,6 +6,7 @@
 - `openpyxl`
 - `pyechart`
 - `scikit-learning`(模型占位)
+  
 再使用以上解释器运行`\backend\flaskr`目录下的`app.py`文件，终端输出端口号时运行成功。
 
 #### 前端（`frontend`）
