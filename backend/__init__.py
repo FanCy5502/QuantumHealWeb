@@ -11,7 +11,7 @@ def create_app(test_config=None):
         SECRET_KEY='dev',
         DATABASE=os.path.join(app.instance_path, 'flaskr.sqlite'),
     )
-    CORS(app, resources={r"/*": {"origins": "http://localhost:2025", "supports_credentials": True}})
+    CORS(app, resources={r"/*": {"origins": "http://localhost:1925", "supports_credentials": True}})
     if test_config is None:
         app.config.from_pyfile('config.py', silent=True)
     else:
@@ -36,13 +36,13 @@ def create_app(test_config=None):
     import function
     app.register_blueprint(function.bp)
 
+    # 结果蓝图：预测、聚类结果展示视图
+    import result
+    app.register_blueprint(result.bp)
+
 
     @app.route('/')
     def index():
         return redirect(url_for('auth.login'))  # 重定向到 job 蓝图中的路由
-
-    # # 招聘信息蓝图
-    # import job
-    # app.register_blueprint(job.bp)
 
     return app

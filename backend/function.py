@@ -109,7 +109,6 @@ def get_patient_list():
             'tumor_size': row['tumor_size'],
             'upload_timestamp': row['upload_timestamp']
         })
-    print(result)
-
+        
     return jsonify({'success': True, 'patients': result})
 

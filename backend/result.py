@@ -10,7 +10,7 @@ from db import get_db  # 确保你有 `get_db` 连接数据库
 
 bp = Blueprint('result', __name__, url_prefix='/result')
 
-@@bp.route('/view_prediction/<int:patient_id>', methods=['GET'])
+@bp.route('/view_prediction/<int:patient_id>', methods=['GET'])
 def view_prediction(patient_id):
     doctor_id = session.get('user_id')
     db = get_db()
@@ -34,7 +34,8 @@ def view_prediction(patient_id):
         ).fetchall()
         if not before_data:
             return jsonify({'success': False, 'message': '未找到放疗前数据'})
-        return jsonify({'success': True, 'data': format_3d_data(before_data, is_cluster=False)})
+        exist_pet = [row['PETsparse'] for row in before_data]
+        return jsonify({'success': True, 'data': format_3d_data(before_data, values=exist_pet)})
 
     # 处理放疗后数据请求（包括预测逻辑）
     elif pre_treatment == 1:
@@ -43,7 +44,8 @@ def view_prediction(patient_id):
             (tumor_set_id,)
         ).fetchall()
         if after_data:
-            return jsonify({'success': True, 'data': format_3d_data(after_data, is_cluster=False)})
+            exist_pet = [row['PETsparse'] for row in after_data]
+            return jsonify({'success': True, 'data': format_3d_data(after_data, values=exist_pet)})
 
         # 如果放疗后数据不存在，则进行预测
         input_data = db.execute(
@@ -54,8 +56,8 @@ def view_prediction(patient_id):
             return jsonify({'success': False, 'message': '无足够数据进行预测'})
 
         # 线性回归预测（示例）
-        X = np.array([(row['DoseSparse'],) for row in input_data])
-        y = np.random.normal(0, 0.1, len(X))  # 这里应替换为真实目标值
+        X = np.array([[row['Xsparse'], row['Ysparse'], row['Zsparse'], row['DoseSparse']] for row in input_data])
+        y = np.random.normal(0, 0.1, len(X))  # 模拟目标值
         model = LinearRegression()
         model.fit(X, y)
         predictions = model.predict(X)
@@ -63,12 +65,12 @@ def view_prediction(patient_id):
         # 存入数据库
         for i, row in enumerate(input_data):
             db.execute(
-                "INSERT INTO tumor_data (tumor_set_id, Xsparse, Ysparse, Zsparse, PETsparse, is_post_treatment) VALUES (?, ?, ?, ?, ?, 1)",
-                (tumor_set_id, row['Xsparse'], row['Ysparse'], row['Zsparse'], predictions[i])
+                "INSERT INTO tumor_data (tumor_set_id, DoseSparse, Xsparse, Ysparse, Zsparse, PETsparse, is_post_treatment) VALUES (?, ?, ?, ?, ?, ?, 1)",
+                (tumor_set_id, row['DoseSparse'], row['Xsparse'], row['Ysparse'], row['Zsparse'], predictions[i])
             )
         db.commit()
 
-        return jsonify({'success': True, 'data': format_3d_data(input_data, values=predictions, is_cluster=False)})
+        return jsonify({'success': True, 'data': format_3d_data(input_data, values=predictions)})
 
     return jsonify({'success': False, 'message': '无效的参数'})
 
@@ -87,16 +89,17 @@ def view_clustering(patient_id):
 
     # 检查是否已有聚类数据
     existing_data = db.execute(
-        "SELECT Xsparse, Ysparse, Zsparse, cluster_label FROM tumor_data WHERE tumor_set_id = ? AND is_post_treatment = 0 AND cluster_label IS NOT NULL",
+        "SELECT Xsparse, Ysparse, Zsparse, PETsparse, cluster_label FROM tumor_data WHERE tumor_set_id = ? AND is_post_treatment = 0 AND cluster_label IS NOT NULL",
         (tumor_set_id,)
     ).fetchall()
     
     if existing_data:
-        return jsonify({'success': True, 'data': format_3d_data(existing_data, cluster=True)})
+        exist_labels = [row['cluster_label'] for row in existing_data]
+        return jsonify({'success': True, 'data': format_3d_data(existing_data, values=exist_labels)})
     
     # 获取原始数据进行聚类
     raw_data = db.execute(
-        "SELECT Xsparse, Ysparse, Zsparse FROM tumor_data WHERE tumor_set_id = ? AND is_post_treatment = 0",
+        "SELECT Xsparse, Ysparse, Zsparse, PETsparse FROM tumor_data WHERE tumor_set_id = ? AND is_post_treatment = 0",
         (tumor_set_id,)
     ).fetchall()
     if not raw_data:
@@ -116,13 +119,16 @@ def view_clustering(patient_id):
     db.commit()
     
     # 返回 3D 画图数据
-    return jsonify({'success': True, 'data': format_3d_data(raw_data, labels, cluster=True)})
+    return jsonify({'success': True, 'data': format_3d_data(raw_data, labels)}) #, cluster=True)})
 
-def format_3d_data(data, values=None, cluster=False):
+def format_3d_data(data, values=None): #, cluster=False):
     points = []
+    # 确保 values 既不是 None，也不是空数组
+    has_values = values is not None and len(values) > 0 
+
     for i, row in enumerate(data):
-        point = [row['Xsparse'], row['Ysparse'], row['Zsparse'], values[i] if values else row['PETsparse']]
-        if cluster:
-            point.append(row['cluster_label'] if 'cluster_label' in row else values[i])
+        point = [row['Xsparse'], row['Ysparse'], row['Zsparse'], values[i]]
+        # if cluster:
+        #     point.append(row['cluster_label'] if 'cluster_label' in row else values[i])
         points.append(point)
     return points
