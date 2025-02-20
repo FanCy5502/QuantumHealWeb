@@ -21,3 +21,10 @@ pnpm-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# Ignore Python bytecode files in the backend folder
+backend/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+

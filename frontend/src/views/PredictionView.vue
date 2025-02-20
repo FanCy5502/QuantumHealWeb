@@ -27,131 +27,97 @@
   </div>
 </template>
 
+
 <script>
 import { onMounted, ref, nextTick } from "vue";
 import { useRoute } from "vue-router";
 import * as echarts from "echarts";
 import "echarts-gl";
-import axios from "axios"; // 引入axios
+import axios from "axios"; 
 
 export default {
   setup() {
     const route = useRoute();
     const chartBefore = ref(null);
     const chartAfter = ref(null);
-    const beforeData = ref(null);  // 存放放疗前数据
-    const afterData = ref(null);   // 存放放疗后数据
-    const sendMessage = ref("");   // 存放消息
-    const Success = ref(false);    // 成功状态
+    let myChartBefore = null;
+    let myChartAfter = null;
 
     onMounted(() => {
       Promise.all([
-        axios.get(`/result/view_prediction/${route.params.patient_id}?pre=1`), // 使用axios发起请求
-        axios.get(`/result/view_prediction/${route.params.patient_id}?pre=0`)  // 使用axios发起请求
+        axios.get(`/result/view_prediction/${route.params.patient_id}?pre=1`),
+        axios.get(`/result/view_prediction/${route.params.patient_id}?pre=0`),
       ])
       .then(([before, after]) => {
-        beforeData.value = before.data; // 存放数据到 ref
-        afterData.value = after.data;
-
-        console.log("放疗前数据:", before.data);
-        console.log("放疗后数据:", after.data);
-
-        if (before.data.success && after.data.success) {
-          nextTick(() => {
-            renderChart(chartBefore.value, before.data.data, "rgba(255, 165, 0, 0.8)"); // 橙色点（放疗前）
-            renderChart(chartAfter.value, after.data.data, "rgba(0, 255, 0, 0.8)");   // 绿色点（放疗后）
-          });
+        if (!before.data.success || !before.data.data.length) {
+          console.error("放疗前数据为空或格式错误:", before.data);
+          return;
         }
+        if (!after.data.success || !after.data.data.length) {
+          console.error("放疗后数据为空或格式错误:", after.data);
+          return;
+        }
+
+        nextTick(() => {
+          if (chartBefore.value && chartAfter.value) {
+            if (!myChartBefore) myChartBefore = echarts.init(chartBefore.value);
+            if (!myChartAfter) myChartAfter = echarts.init(chartAfter.value);
+            
+            updateChart(myChartBefore, before.data.data);
+            updateChart(myChartAfter, after.data.data);
+          } else {
+            console.error("ECharts 容器未找到");
+          }
+        });
       })
-      .catch(error => {
-        console.error("获取预测数据出错:", error);
-      });
+      .catch(error => console.error("获取预测数据出错:", error));
     });
-   
 
-    function renderChart(container, points) {
-      if (!container) {
-        console.error("容器未找到:", container);
-        return;
-      }
-
-      const myChart = echarts.init(container);
-
+    function updateChart(chartInstance, points) {
       if (!points || points.length === 0) {
-        console.warn("数据为空");
+        console.error("数据为空");
         return;
       }
 
-      // 提取X、Y、Z坐标和PETsparse值
       const xs = points.map(p => p[0]);
       const ys = points.map(p => p[1]);
       const zs = points.map(p => p[2]);
-      const PETs = points.map(p => p[3]); // PETsparse 值
+      const PETs = points.map(p => p[3]);
 
-      // 计算坐标轴范围
-      const getRange = arr => [Math.min(...arr), Math.max(...arr)];
+      const getRange = arr => arr.length > 0 ? [Math.min(...arr), Math.max(...arr)] : [0, 1];
       const [xMin, xMax] = getRange(xs);
       const [yMin, yMax] = getRange(ys);
       const [zMin, zMax] = getRange(zs);
       const [petMin, petMax] = getRange(PETs);
 
-      // 映射 PETsparse 到颜色
-      function getColor(petValue) {
-        const ratio = (petValue - petMin) / (petMax - petMin); // 归一化
-        let r, g, b;
-        if (ratio < 0.5) {
-          // 低于中间值，白色过渡到红色
-          r = 255;
-          g = Math.round(255 * (1 - ratio * 2)); // 逐渐降低绿色分量
-          b = Math.round(255 * (1 - ratio * 2)); // 逐渐降低蓝色分量
-        } else {
-          // 高于中间值，红色过渡到黑色
-          r = Math.round(255 * (1 - (ratio - 0.5) * 2)); // 逐渐降低红色分量
-          g = 0;
-          b = 0;
-        }
-        return `rgb(${r}, ${g}, ${b})`;
-      }
-
-      myChart.setOption({
-        tooltip: {},
+      chartInstance.setOption({
+        tooltip: {
+          formatter: params => params.value ? `X: ${params.value[0]}<br>Y: ${params.value[1]}<br>Z: ${params.value[2]}<br>PET: ${params.value[3]}` : "无数据"
+        },
         xAxis3D: { type: "value", min: xMin, max: xMax, name: "X" },
         yAxis3D: { type: "value", min: yMin, max: yMax, name: "Y" },
         zAxis3D: { type: "value", min: zMin, max: zMax, name: "Z" },
-        grid3D: {
-          viewControl: { autoRotate: true, distance: 180 },
-        },
-        series: [
-          {
-            type: "scatter3D",
-            data: points.map(([x, y, z, PETsparse]) => ({
-              value: [x, y, z],
-              itemStyle: {
-                color: getColor(PETsparse),
-                opacity: 0.6, // 增加透明度，提高层次感
-              },
-            })),
-            symbolSize: 5, // 适当调整点的大小
-          },
-        ],
+        grid3D: { viewControl: { autoRotate: true, distance: 180 } },
+        series: [{
+          type: "scatter3D",
+          data: points.map(([x, y, z, PETsparse]) => [x, y, z, PETsparse]),
+          symbolSize: 5,
+        }],
         visualMap: {
           show: true,
-          dimension: 3, // 使用 PETsparse 作为颜色参考
+          dimension: 3,
           min: petMin,
           max: petMax,
           calculable: true,
-          inRange: {
-            color: ["#ffffff", "#ff0000", "#000000"], // 白 -> 红 -> 黑
-          },
-          text: ["高", "低"], // 颜色条的文字
+          inRange: { color: ["blue", "green", "yellow", "red"] },
+          text: ["高", "低"],
           left: "right",
           top: "center",
         },
       });
     }
 
-
-    return { chartBefore, chartAfter, beforeData, afterData, sendMessage, Success };
+    return { chartBefore, chartAfter };
   }
 };
 </script>
