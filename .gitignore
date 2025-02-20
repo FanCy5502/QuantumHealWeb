@@ -1,0 +1,3 @@
+echo "backend/__pycache__/" >> .gitignore
+git rm --cached -r backend/__pycache__/
+git commit -m "Ignore pycache files"
